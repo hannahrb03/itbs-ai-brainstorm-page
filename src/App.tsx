@@ -111,12 +111,15 @@ const painPoints: PainPoint[] = [
 ];
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-const supabaseEnabled = Boolean(supabaseUrl && supabaseAnonKey);
+const supabaseKey =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined);
+
+const supabaseEnabled = Boolean(supabaseUrl && supabaseKey);
 
 let supabase: SupabaseClient | null = null;
 if (supabaseEnabled) {
-  supabase = createClient(supabaseUrl!, supabaseAnonKey!);
+  supabase = createClient(supabaseUrl!, supabaseKey!);
 }
 
 function clamp(num: number, min: number, max: number) {
