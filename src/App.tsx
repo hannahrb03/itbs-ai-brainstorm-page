@@ -363,7 +363,7 @@ export default function App() {
     setIsSubmitting(true);
     setSubmitError("");
 
-    const { error } = await supabase.from("brainstorm_submissions").insert(submissionToInsert(submission));
+    const { error } = await supabase!.from("brainstorm_submissions").insert(submissionToInsert(submission));
 
     setIsSubmitting(false);
 
@@ -385,7 +385,7 @@ export default function App() {
     const confirmed = window.confirm("Clear all submissions for this session?");
     if (!confirmed) return;
 
-    const { error } = await supabase.from("brainstorm_submissions").delete().neq("id", "");
+    const { error } = await supabase!.from("brainstorm_submissions").delete().neq("id", "");
     if (error) {
       setSubmitError(`Could not clear submissions: ${error.message}`);
       return;
