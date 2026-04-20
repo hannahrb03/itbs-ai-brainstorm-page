@@ -412,11 +412,11 @@
         return;
       }
 
+      const sb = supabase;
       setIsSubmitting(true);
       setSubmitError("");
 
-      const { error } = await supabase.from("brainstorm_submissi
-  ons").insert(submissionToInsert(submission));
+      const { error } = await sb.from("brainstorm_submissions").insert(submissionToInsert(submission));
 
       setIsSubmitting(false);
 
@@ -436,13 +436,12 @@
         return;
       }
 
+      const sb = supabase;
       const confirmed = window.confirm("Clear all submissions
   for this session?");
       if (!confirmed) return;
 
-      const { error } = await
-  supabase.from("brainstorm_submissions").delete().neq("id",
-  "");
+      const { error } = await sb.from("brainstorm_submissions").delete().neq("id", "");
       if (error) {
         setSubmitError(`Could not clear submissions:
   ${error.message}`);
