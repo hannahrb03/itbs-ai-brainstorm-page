@@ -167,21 +167,13 @@
       };
     }
 
-    const hasSpecificAction =
-  /(build|create|automate|summarize|draft|analyze|classify|route
-  |predict|surface|recommend|generate)/.test(t);
-    const hasAudience = /(employee|user|leader|manager|team|cust
-  omer|analyst|engineer|service desk|stakeholder)/.test(t);
-    const hasAiUseCase = /(ai|assistant|copilot|chatbot|search|s
-  ummary|knowledge|workflow|agent)/.test(t);
-    const hasIntegrationCue = /(teams|sharepoint|servicenow|emai
-  l|slack|jira|sap|dashboard|excel)/.test(t);
-    const hasSpeedCue =
-  /(quick|fast|real-time|instantly|minutes)/.test(t);
-    const hardCue = /(enterprise-wide|full rebuild|custom
-  model)/.test(t);
-    const easyCue = /(pilot|prototype|mvp|dashboard|summary|sear
-  ch|faq|copilot|triage)/.test(t);
+    const hasSpecificAction = /(build|create|automate|summarize|draft|analyze|classify|route|predict|surface|recommend|generate)/.test(t);
+    const hasAudience = /(employee|user|leader|manager|team|customer|analyst|engineer|service desk|stakeholder)/.test(t);
+    const hasAiUseCase = /(ai|assistant|copilot|chatbot|search|summary|knowledge|workflow|agent)/.test(t);
+    const hasIntegrationCue = /(teams|sharepoint|servicenow|email|slack|jira|sap|dashboard|excel)/.test(t);
+    const hasSpeedCue = /(quick|fast|real-time|instantly|minutes)/.test(t);
+    const hardCue = /(enterprise-wide|full rebuild|custom model)/.test(t);
+    const easyCue = /(pilot|prototype|mvp|dashboard|summary|search|faq|copilot|triage)/.test(t);
 
     let impact = 2;
     impact += hasAudience ? 1 : 0;
