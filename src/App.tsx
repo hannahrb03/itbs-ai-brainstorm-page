@@ -295,7 +295,7 @@ export default function App() {
         return;
       }
 
-      setIdeas((data ?? []).map((row) => rowToSubmission(row as SubmissionRow)));
+      setIdeas(((data ?? []) as SubmissionRow[]).map((row: SubmissionRow) => rowToSubmission(row)));
       setStatusMessage("Connected to live session.");
     }
 
