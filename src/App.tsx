@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Sparkles,
@@ -9,8 +9,10 @@ import {
   Clock3,
   Wrench,
   BadgeCheck,
+  RotateCcw,
   type LucideIcon,
 } from "lucide-react";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type PainPoint = {
   id: string;
@@ -42,6 +44,27 @@ type Submission = {
   categoryLabel: string;
   painPointSummary: string;
   score: ScoreResult;
+  createdAt?: string;
+};
+
+type SubmissionRow = {
+  id: string;
+  team_name: string;
+  idea: string;
+  category: string;
+  category_label: string;
+  pain_point_summary: string;
+  impact: number;
+  feasibility: number;
+  time_to_value: number;
+  effort: number;
+  total: number;
+  overall_label: string;
+  explanation_impact: string;
+  explanation_feasibility: string;
+  explanation_time_to_value: string;
+  explanation_effort: string;
+  created_at: string;
 };
 
 const painPoints: PainPoint[] = [
@@ -87,6 +110,15 @@ const painPoints: PainPoint[] = [
   },
 ];
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const supabaseEnabled = Boolean(supabaseUrl && supabaseAnonKey);
+
+let supabase: SupabaseClient | null = null;
+if (supabaseEnabled) {
+  supabase = createClient(supabaseUrl!, supabaseAnonKey!);
+}
+
 function clamp(num: number, min: number, max: number) {
   return Math.max(min, Math.min(max, num));
 }
@@ -126,7 +158,7 @@ function scoreIdea(text: string, category: string): ScoreResult {
   impact += hasAiUseCase ? 1 : 0;
   impact += /(reduce|save|improve|increase|faster|better)/.test(t) ? 1 : 0;
   impact += /(hours|manual|rework|bottleneck|delay)/.test(t) ? 1 : 0;
-  if (category === "manual-work" || category === "knowledge" || category === "delivery") {
+  if (category === "manual-processes" || category === "training-onboarding-knowledge") {
     impact += 0.5;
   }
 
@@ -188,18 +220,110 @@ function scoreIdea(text: string, category: string): ScoreResult {
   return { impact, feasibility, timeToValue, effort, total, overallLabel, explanations };
 }
 
+function rowToSubmission(row: SubmissionRow): Submission {
+  return {
+    id: row.id,
+    teamName: row.team_name,
+    idea: row.idea,
+    category: row.category,
+    categoryLabel: row.category_label,
+    painPointSummary: row.pain_point_summary,
+    createdAt: row.created_at,
+    score: {
+      impact: row.impact,
+      feasibility: row.feasibility,
+      timeToValue: row.time_to_value,
+      effort: row.effort,
+      total: row.total,
+      overallLabel: row.overall_label,
+      explanations: {
+        impact: row.explanation_impact,
+        feasibility: row.explanation_feasibility,
+        timeToValue: row.explanation_time_to_value,
+        effort: row.explanation_effort,
+      },
+    },
+  };
+}
+
+function submissionToInsert(submission: Submission) {
+  return {
+    team_name: submission.teamName,
+    idea: submission.idea,
+    category: submission.category,
+    category_label: submission.categoryLabel,
+    pain_point_summary: submission.painPointSummary,
+    impact: submission.score.impact,
+    feasibility: submission.score.feasibility,
+    time_to_value: submission.score.timeToValue,
+    effort: submission.score.effort,
+    total: submission.score.total,
+    overall_label: submission.score.overallLabel,
+    explanation_impact: submission.score.explanations.impact,
+    explanation_feasibility: submission.score.explanations.feasibility,
+    explanation_time_to_value: submission.score.explanations.timeToValue,
+    explanation_effort: submission.score.explanations.effort,
+  };
+}
+
 export default function App() {
   const [teamName, setTeamName] = useState("");
-  const [category, setCategory] = useState("manual-work");
+  const [category, setCategory] = useState("manual-processes");
   const [idea, setIdea] = useState("");
   const [ideas, setIdeas] = useState<Submission[]>([]);
   const [submitError, setSubmitError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState(supabaseEnabled ? "Connected to live session." : "Supabase not configured yet.");
 
   const selectedPainPoint = painPoints.find((p) => p.id === category) ?? painPoints[0];
 
+  useEffect(() => {
+    if (!supabase) return;
+
+    let active = true;
+
+    async function loadIdeas() {
+      const { data, error } = await supabase
+        .from("brainstorm_submissions")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!active) return;
+
+      if (error) {
+        setStatusMessage(`Could not load submissions: ${error.message}`);
+        return;
+      }
+
+      setIdeas((data ?? []).map((row) => rowToSubmission(row as SubmissionRow)));
+      setStatusMessage("Connected to live session.");
+    }
+
+    loadIdeas();
+
+    const channel = supabase
+      .channel("brainstorm-submissions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "brainstorm_submissions" },
+        () => {
+          loadIdeas();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
   const rankedIdeas = useMemo(() => {
     return [...ideas]
-      .sort((a, b) => b.score.total - a.score.total)
+      .sort((a, b) => {
+        if (b.score.total !== a.score.total) return b.score.total - a.score.total;
+        return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+      })
       .map((item, index) => ({ ...item, rank: index + 1 }));
   }, [ideas]);
 
@@ -210,7 +334,7 @@ export default function App() {
     return scoreIdea(idea, category);
   }, [idea, category]);
 
-  function submitIdea() {
+  async function submitIdea() {
     if (!idea.trim()) return;
 
     const score = scoreIdea(idea, category);
@@ -221,27 +345,58 @@ export default function App() {
     }
 
     const categoryMeta = painPoints.find((p) => p.id === category) ?? painPoints[0];
+    const submission: Submission = {
+      id: crypto.randomUUID(),
+      teamName: teamName.trim() || `Table ${ideas.length + 1}`,
+      idea: idea.trim(),
+      category,
+      categoryLabel: categoryMeta.label,
+      painPointSummary: categoryMeta.summary,
+      score,
+    };
 
-    setIdeas((prev) => [
-      {
-        id: crypto.randomUUID(),
-        teamName: teamName.trim() || `Table ${prev.length + 1}`,
-        idea: idea.trim(),
-        category,
-        categoryLabel: categoryMeta.label,
-        painPointSummary: categoryMeta.summary,
-        score,
-      },
-      ...prev,
-    ]);
+    if (!supabase) {
+      setSubmitError("Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
 
+    setIsSubmitting(true);
     setSubmitError("");
+
+    const { error } = await supabase.from("brainstorm_submissions").insert(submissionToInsert(submission));
+
+    setIsSubmitting(false);
+
+    if (error) {
+      setSubmitError(`Could not submit idea: ${error.message}`);
+      return;
+    }
+
     setIdea("");
+    setStatusMessage("Idea submitted to live session.");
+  }
+
+  async function clearAllIdeas() {
+    if (!supabase) {
+      setSubmitError("Supabase is not configured yet.");
+      return;
+    }
+
+    const confirmed = window.confirm("Clear all submissions for this session?");
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("brainstorm_submissions").delete().neq("id", "");
+    if (error) {
+      setSubmitError(`Could not clear submissions: ${error.message}`);
+      return;
+    }
+
+    setStatusMessage("All submissions cleared.");
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      submitIdea();
+      void submitIdea();
     }
   }
 
@@ -254,7 +409,8 @@ export default function App() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
-          className="hero-grid" style={styles.heroGrid}
+          className="hero-grid"
+          style={styles.heroGrid}
         >
           <section style={{ ...styles.card, ...styles.heroCard }}>
             <div style={styles.cardHeader}>
@@ -272,6 +428,8 @@ export default function App() {
             </div>
 
             <div style={styles.cardBody}>
+              <div style={styles.statusBar}>{statusMessage}</div>
+
               <div className="form-grid" style={styles.formGrid}>
                 <Field label="Table / Team Name">
                   <input
@@ -323,11 +481,15 @@ export default function App() {
               {submitError ? <div style={styles.submitError}>{submitError}</div> : null}
 
               <div style={styles.actionRow}>
-                <button type="button" onClick={submitIdea} style={styles.button}>
+                <button type="button" onClick={() => void submitIdea()} style={styles.button} disabled={isSubmitting}>
                   <Send size={16} />
-                  <span>Submit idea</span>
+                  <span>{isSubmitting ? "Submitting..." : "Submit idea"}</span>
                 </button>
-                <span style={styles.pill}>Bright ideas, scored on a 1–20 scale</span>
+                <button type="button" onClick={() => void clearAllIdeas()} style={styles.secondaryButton}>
+                  <RotateCcw size={16} />
+                  <span>Reset session</span>
+                </button>
+                <span style={styles.pill}>Shared live board across devices</span>
               </div>
             </div>
           </section>
@@ -350,20 +512,20 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                <div style={styles.previewStack}>
-                  <ScoreRow label="Impact" score={currentPreview.impact} icon={BarChart3} blurb={currentPreview.explanations.impact} />
-                  <ScoreRow label="Feasibility" score={currentPreview.feasibility} icon={BadgeCheck} blurb={currentPreview.explanations.feasibility} />
-                  <ScoreRow label="Time to Value" score={currentPreview.timeToValue} icon={Clock3} blurb={currentPreview.explanations.timeToValue} />
-                  <ScoreRow label="Effort (reversed)" score={currentPreview.effort} icon={Wrench} blurb={currentPreview.explanations.effort} />
+                  <div style={styles.previewStack}>
+                    <ScoreRow label="Impact" score={currentPreview.impact} icon={BarChart3} blurb={currentPreview.explanations.impact} />
+                    <ScoreRow label="Feasibility" score={currentPreview.feasibility} icon={BadgeCheck} blurb={currentPreview.explanations.feasibility} />
+                    <ScoreRow label="Time to Value" score={currentPreview.timeToValue} icon={Clock3} blurb={currentPreview.explanations.timeToValue} />
+                    <ScoreRow label="Effort (reversed)" score={currentPreview.effort} icon={Wrench} blurb={currentPreview.explanations.effort} />
 
-                  <div style={styles.totalCard}>
-                    <div>
-                      <div style={styles.totalLabel}>Overall score</div>
-                      <div style={styles.totalValue}>{currentPreview.total}/20</div>
+                    <div style={styles.totalCard}>
+                      <div>
+                        <div style={styles.totalLabel}>Overall score</div>
+                        <div style={styles.totalValue}>{currentPreview.total}/20</div>
+                      </div>
+                      <div style={styles.totalBadge}>{currentPreview.overallLabel}</div>
                     </div>
-                    <div style={styles.totalBadge}>{currentPreview.overallLabel}</div>
                   </div>
-                </div>
                 )
               ) : (
                 <div style={styles.emptyState}>Start typing an idea to preview the score and rationale.</div>
@@ -523,6 +685,7 @@ const globalCss = `
   body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   input, textarea, select, button { font: inherit; }
   button { cursor: pointer; }
+  button:disabled { opacity: 0.7; cursor: not-allowed; }
   @media (max-width: 1100px) {
     .hero-grid { grid-template-columns: 1fr !important; }
     .bottom-grid { grid-template-columns: 1fr !important; }
@@ -614,6 +777,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "15px",
     lineHeight: 1.6,
   },
+  statusBar: {
+    marginBottom: "16px",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    background: "#ecfeff",
+    color: "#0f766e",
+    fontSize: "14px",
+    fontWeight: 600,
+  },
   formGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
@@ -679,6 +851,17 @@ const styles: Record<string, React.CSSProperties> = {
     color: "white",
     fontWeight: 600,
     boxShadow: "0 12px 24px rgba(16, 185, 129, 0.18)",
+  },
+  secondaryButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "14px",
+    padding: "12px 18px",
+    background: "white",
+    color: "#0f172a",
+    fontWeight: 600,
   },
   pill: {
     display: "inline-flex",
@@ -967,3 +1150,49 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#0f172a",
   },
 };
+
+/*
+SUPABASE SETUP
+1) npm install @supabase/supabase-js
+2) Create a .env file with:
+   VITE_SUPABASE_URL=your-project-url
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+3) Create this table in Supabase SQL editor:
+
+create table public.brainstorm_submissions (
+  id uuid primary key default gen_random_uuid(),
+  team_name text not null,
+  idea text not null,
+  category text not null,
+  category_label text not null,
+  pain_point_summary text not null,
+  impact int not null,
+  feasibility int not null,
+  time_to_value int not null,
+  effort int not null,
+  total int not null,
+  overall_label text not null,
+  explanation_impact text not null,
+  explanation_feasibility text not null,
+  explanation_time_to_value text not null,
+  explanation_effort text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.brainstorm_submissions enable row level security;
+
+create policy "Allow public read brainstorm submissions"
+on public.brainstorm_submissions
+for select
+using (true);
+
+create policy "Allow public insert brainstorm submissions"
+on public.brainstorm_submissions
+for insert
+with check (true);
+
+create policy "Allow public delete brainstorm submissions"
+on public.brainstorm_submissions
+for delete
+using (true);
+*/
