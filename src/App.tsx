@@ -393,7 +393,7 @@ export default function App() {
     const confirmed = window.confirm("Clear all submissions for this session?");
     if (!confirmed) return;
 
-    const { error } = await sb.from("brainstorm_submissions").delete().neq("id", "");
+    const { error } = await sb.from("brainstorm_submissions").delete().gt("created_at", "1970-01-01");
     if (error) {
       setSubmitError(`Could not clear submissions: ${error.message}`);
       return;
